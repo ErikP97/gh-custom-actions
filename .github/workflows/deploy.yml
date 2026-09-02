@@ -1,73 +1,90 @@
+# GitHub Actions workflow demonstrating custom action usage
+# Demonstrates: custom JavaScript actions, reusable action composition, job dependencies, artifact management
 name: Deployment
 on:
   push:
     branches:
-      - main
+      - main  # Triggers on push to main branch
 jobs:
+  # Lint job - runs custom action to cache dependencies without using the cache
   lint:
     runs-on: ubuntu-latest
     steps:
       - name: Get code
         uses: actions/checkout@v7
       - name: Load and cache dependencies
+        # Custom action reference: ./.github/actions/<action-name>
+        # This action handles npm dependency installation and caching logic
         id: cache-deps
         uses: ./.github/actions/cached-deps
         with:
-          caching: 'false'
+          caching: 'false'  # Disables caching for this step (for testing purposes)
       - name: Output information
+        # Accesses output from custom action - returns whether cache was used
         run: echo "Cache used? ${{ steps.cache-deps.outputs.used-cache}}"
       - name: Lint code
         run: npm run lint
+  # Test job - runs tests with caching enabled (parallel with lint)
   test:
     runs-on: ubuntu-latest
     steps:
       - name: Get code
         uses: actions/checkout@v7
       - name: Load and cache dependencies
+        # Same custom action but with default caching enabled
         uses: ./.github/actions/cached-deps
       - name: Test code
         id: run-tests
         run: npm run test
       - name: Upload test report
+        # Only upload artifact if the test step failed
         if: failure() && steps.run-tests.outcome == 'failure'
         uses: actions/upload-artifact@v7
         with:
           name: test-report
           path: test.json
+  # Build job - creates production build after tests pass
   build:
-    needs: test
+    needs: test  # Waits for test job to complete successfully
     runs-on: ubuntu-latest
     steps:
       - name: Get code
         uses: actions/checkout@v7
       - name: Load and cache dependencies
+        # Reuses custom action for consistent dependency management across jobs
         uses: ./.github/actions/cached-deps
       - name: Build website
-        run: npm run build
+        run: npm run build  # Compiles the website for production
       - name: Upload artifacts
+        # Saves build output for deploy job to download and use
         uses: actions/upload-artifact@v7
         with:
-          name: dist-files
-          path: dist
+          name: dist-files  # Artifact identifier
+          path: dist        # Directory containing compiled files
+  # Deploy job - deploys the built website
   deploy:
-    needs: build
+    needs: build  # Waits for build job to complete successfully
     runs-on: ubuntu-latest
     steps:
       - name: Get code
         uses: actions/checkout@v7
       - name: Get build artifacts
+        # Downloads the artifact uploaded by build job
         uses: actions/download-artifact@v7
         with:
-          name: dist-files
+          name: dist-files  # Must match artifact name from build job
           path: ./dist
       - name: Output contents
-        run: ls
+        run: ls  # Lists downloaded artifacts to verify they exist
       - name: Deploy site
+        # Simulated deployment step
         run: echo "Deploying..."
+  # Information job - demonstrates custom JavaScript action (runs in parallel with other jobs)
   information:
     runs-on: ubuntu-latest
     steps:
       - name: Get code
         uses: actions/checkout@v7
       - name: Run custom action
+        # Custom action that handles S3 deployment - implemented in ./.github/actions/deploy-s3-javascript
         uses: ./.github/actions/deploy-s3-javascript
